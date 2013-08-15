@@ -1,0 +1,36 @@
+{
+	"name": "slog",
+	"version": "0.1.1",
+	"description": "Log parser with configurable column processors.",
+	"keywords": ["nodejs", "analytics", "logging", "logparser"],
+	"repository": {
+		"type": "git",
+		"url": "git@github.com:sandro-pasquali/slog.git"
+	},
+	"bugs": {
+		"url": "https://github.com/sandro-pasquali/slog/issues"
+	},
+	"author": {
+		"name": "Sandro Pasquali",
+		"email": "spasquali@gmail.com",
+		"url": "http://www.sandro.mobi"
+	},
+	"dependencies": {
+		"clio"    : "*",
+		"moment"  : "*",
+		"rimraf"  : "*"
+	},
+	"bin" : { 
+		"slog" : "./bin/master.js" 
+	},
+	"directories": ["processors", "bin"],
+	"engines": { 
+		"node": ">= 0.10.0" 
+	},
+	"licenses": [{
+		"type": "MIT",
+		"url": "http://opensource.org/licenses/MIT"
+	}]
+}
+
+

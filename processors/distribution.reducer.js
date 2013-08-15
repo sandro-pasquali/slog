@@ -1,4 +1,3 @@
-//
 var x;
 
 input 	= input 	|| {};

@@ -1,26 +1,12 @@
-// node bin/master.js -f ./long.log -rmin 0 -rmax 20 -v -cp 1:processors/sum 2:processors/distributio
-
-const fs 	= require('fs');
-
-var functionInstance = function(fbody) {
-    return Function(
-        "with(this) { return (function(){" + fbody + "})(); };"
-    )
-};
-
-//	Will receive an object #m with attributes:
-//
-//	#filename			The file which this worker will write to.
-//	#columnProcessors	An array of column processors, which this file might fetch the #mapFile of.
-//	#rmin				The minimum range value.
-//	#rmax				The maximum range value.
-//
+var fs 	= require('fs');
 
 process.on('message', function(m) {
 
-    const filename	= m.filename;
-    const rmin		= m.rmin;
-    const rmax		= m.rmax;
+	var filename	= m.file;
+    var rmin		= m.rmin;
+    var rmax		= m.rmax;
+
+    var sed = "sed -n '" + m.offsetStart + "," + m.offsetEnd + "p' " + filename;
 
 	//	The accumulated results, indexed by column, returned by column processors.
 	//
@@ -35,24 +21,27 @@ process.on('message', function(m) {
 	//
 	m.columnProcessors.forEach(function(cp) {
 
-		var file 	= cp.mapFile;
-		var idx		= cp.colIdx;
+		var f 	= cp.mapFile;
+		var idx	= cp.colIdx;
 
 		try {
-			columnProcessors[idx] 		= functionInstance(fs.readFileSync(file));
-			accumulatedColumns[idx] 	= void 0;
+			columnProcessors[idx] 	= Function("with(this) { return (function(){" + fs.readFileSync(f) + "})(); };");
+			accumulatedColumns[idx] = void 0;
 		} catch(e) {
-			throw "Error while creating column processor: " + file + " : " + e;
+			throw "Error while creating column processor: " + f + " : " + e;
 		}
 	});
 
-    fs.readFile(filename, function(err, data) {
+
+    var reader = require('child_process').exec(sed, {
+    	maxBuffer 	: 1024 * 1000000
+    }, function(err, data, stderr) {
 
         if(err) {
-            throw err;
+            throw new Error(err);
         }
 
-        data = data.toString().split("\n");
+        data = data.split("\n");
 
         var range 		= [];
         var outliers	= {
@@ -60,37 +49,37 @@ process.on('message', function(m) {
             over	: 0
         };
 
-        var i		= data.length;
-        var x		= rmax;
+        var i	= data.length;
+        var x	= rmax;
+        
+        var rlen;
         var n;
-        var start;
         var end;
         var row;
-        var context;
 
         //	Initialize #range with zeros(0)
         //
         do {
-            range[x] = 0;
-            --x;
+            range[x--] = 0;
         } while(x >= rmin);
 
-        //	Fetching each row, splitting on comma(,) grab timestamp and execution time,
+        //	Fetching each row, splitting on comma grab timestamp and execution time,
         //	fill #range with exec time values, keying on exec time (note that this may mean a
         //	sparse array), and storing any exec times rmin <> rmax in #outliers[under || over].
         //
         while(i--) {
 
             row = data[i].split(",");
+            rlen = row.length;
 
-            n = parseInt(row[1]);
+            n = +row[1];
 
-			//	May have headers (strings)
+			//	Ensure we have a number
 			//
-            if(!isNaN(parseFloat(n)) && isFinite(n)) {
+            if(!isNaN(n)) {
 
                 if(!end) {
-                    end =  parseInt(row[0]);
+                    end =  +row[0];
                 }
 
                 if(range[n] !== void 0) {
@@ -102,46 +91,34 @@ process.on('message', function(m) {
                         outliers.over++;
                     }
                 }
-            }
+            } 
 
 			//	For each column index check if we have a processor, and if so accumulate
 			//  results from column processor.
 			//
-            for(x=0; x < row.length; x++) {
+            for(x=0; x < rlen; x++) {
 				if(columnProcessors[x]) {
 					//	#input	: 	value of column.
 					//	#output	: 	current accumulated value of column.
-					//	#row	: 	a *copy* of this row; can be altered/used by processor
-					//				without side effects.
 					//
 					accumulatedColumns[x] = columnProcessors[x].call({
 						input	: row[x],
-						output	: accumulatedColumns[x],
-						row		: row.slice(0)
+						output	: accumulatedColumns[x]
 					});
 				}
             }
         }
 
-        start	= parseInt(row[0]);
+		process.send({
+			range       		: range,
+			outliers    		: outliers,
+			start       		: +row[0],
+			end         		: end,
+			accumulatedColumns	: accumulatedColumns
+		});
 
-        //  Note that we're unlinking the data chunk we just worked on.
-        //
-        fs.unlink(filename, function(err) {
-            if(err) {
-                throw err;
-            }
+		process.exit();
 
-            process.send({
-                range       		: range,
-                outliers    		: outliers,
-                start       		: start,
-                end         		: end,
-				accumulatedColumns	: accumulatedColumns
-            });
-
-            process.exit();
-        });
     });
 });
 
